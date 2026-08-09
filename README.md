@@ -1,8 +1,6 @@
-<p align="center">
-  <img src="priv/images/logo-full.png" alt="MDEx Multiline Cells Logo" width="220" />
-</p>
+<img src="https://raw.githubusercontent.com/Oeditus/mdex_multiline_cells/v0.1.0/priv/images/logo-128.png" alt="MDEx Multiline Plugin" width="128" align="right">
 
-<h1 align="center">MDEx Multiline Cells</h1>
+# MDEx Multiline Cells
 
 <p align="center">
   An <a href="https://hexdocs.pm/mdex">MDEx</a> plugin enabling multi-line cells in Markdown tables with full inline/block Markdown rendering and automatic key-column continuation guessing.

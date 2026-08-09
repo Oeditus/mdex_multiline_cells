@@ -3,11 +3,12 @@ defmodule MdexMultilineCellsTest do
 
   alias MdexMultilineCells
 
-  @fixture_path "priv/fixtures/multiline-cell.md"
+  @bordered_fixture "priv/fixtures/multiline-cell.md"
+  @borderless_fixture "priv/fixtures/multiline-cell-no-border.md"
 
   describe "to_html!/2 integration with empty key column guessing" do
     test "correctly parses multiline table from priv/fixtures/multiline-cell.md fixture" do
-      markdown = File.read!(@fixture_path)
+      markdown = File.read!(@bordered_fixture)
       html = MdexMultilineCells.to_html!(markdown)
 
       # Check row B1
@@ -44,6 +45,13 @@ defmodule MdexMultilineCellsTest do
       assert html =~ "<td>Flag rename leaves orphaned</td>"
     end
 
+    test "correctly parses borderless multiline table from priv/fixtures/multiline-cell-no-border.md" do
+      bordered_html = MdexMultilineCells.to_html!(File.read!(@bordered_fixture))
+      borderless_html = MdexMultilineCells.to_html!(File.read!(@borderless_fixture))
+
+      assert borderless_html == bordered_html
+    end
+
     test "allows disabling empty key column guessing with guess_multiline: false" do
       markdown = """
       | # | Details |
@@ -56,6 +64,63 @@ defmodule MdexMultilineCellsTest do
 
       # Should have two distinct table rows <tr>
       assert Enum.count(Regex.scan(~r/<tr>/, html)) == 3
+    end
+  end
+
+  describe "parsing fixtures into AST with MDEx and plugin" do
+    test "parses priv/fixtures/multiline-cell.md with MDEx.parse_document! and plugin into AST table node" do
+      markdown = File.read!(@bordered_fixture)
+
+      doc =
+        MDEx.parse_document!(markdown,
+          extension: [table: true],
+          plugins: [MdexMultilineCells]
+        )
+
+      assert %MDEx.Document{} = doc
+      assert doc.nodes != []
+
+      table_node = hd(doc.nodes)
+      assert %MDEx.Table{} = table_node
+      assert table_node.num_rows == 6
+      assert table_node.num_columns == 4
+    end
+
+    test "parses priv/fixtures/multiline-cell-no-border.md into identical AST structure as bordered fixture" do
+      bordered_doc =
+        MDEx.parse_document!(File.read!(@bordered_fixture),
+          extension: [table: true],
+          plugins: [MdexMultilineCells]
+        )
+
+      borderless_doc =
+        MDEx.parse_document!(File.read!(@borderless_fixture),
+          extension: [table: true],
+          plugins: [MdexMultilineCells]
+        )
+
+      assert %MDEx.Document{} = bordered_doc
+      assert %MDEx.Document{} = borderless_doc
+
+      table_b1 = hd(bordered_doc.nodes)
+      table_b2 = hd(borderless_doc.nodes)
+
+      assert %MDEx.Table{} = table_b1
+      assert %MDEx.Table{} = table_b2
+
+      assert table_b1.num_rows == table_b2.num_rows
+      assert table_b1.num_columns == table_b2.num_columns
+    end
+
+    test "parses multiline cell fixtures via MdexMultilineCells.parse!/2" do
+      bordered_doc = MdexMultilineCells.parse!(File.read!(@bordered_fixture))
+      borderless_doc = MdexMultilineCells.parse!(File.read!(@borderless_fixture))
+
+      assert %MDEx.Document{} = bordered_doc
+      assert %MDEx.Document{} = borderless_doc
+
+      assert hd(bordered_doc.nodes).num_rows == 6
+      assert hd(borderless_doc.nodes).num_rows == 6
     end
   end
 

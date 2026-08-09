@@ -52,10 +52,12 @@ defmodule MdexMultilineCells.Preprocessor do
       fence = code_fence_start(trimmed) ->
         {[line | acc], {:in_code_block, fence}}
 
-      table_row?(trimmed) ->
-        pipes = count_pipes(trimmed)
-        processed_line = convert_inline_double_backslashes(line)
-        {[processed_line | acc], {:in_table, pipes}}
+      table_line?(line) ->
+        mode = detect_border_mode(line)
+        cells = parse_row_cells(line, mode)
+        formatted = format_row_cells(cells)
+        pipes = count_pipes(formatted)
+        {[formatted | acc], {:in_table, pipes, mode, length(cells)}}
 
       true ->
         {[line | acc], :out_of_table}
@@ -65,7 +67,7 @@ defmodule MdexMultilineCells.Preprocessor do
   defp process_line(
          line,
          acc,
-         {:in_table, expected_pipes},
+         {:in_table, expected_pipes, mode, expected_cols},
          syntax,
          strip_indent,
          guess_multiline,
@@ -80,106 +82,51 @@ defmodule MdexMultilineCells.Preprocessor do
       trimmed == "" ->
         {[line | acc], :out_of_table}
 
-      empty_key_continuation?(acc, line, guess_multiline, key_column) ->
-        join_empty_key_row(line, acc, expected_pipes)
+      empty_key_continuation?(acc, line, mode, guess_multiline, key_column) ->
+        join_empty_key_row(line, acc, expected_pipes, mode)
 
       backslash_continuation?(acc, syntax) ->
-        join_backslash_continuation(line, acc, expected_pipes, strip_indent)
+        join_backslash_continuation(
+          line,
+          acc,
+          expected_pipes,
+          strip_indent,
+          mode,
+          expected_cols
+        )
 
-      unclosed_continuation?(acc, line, syntax, expected_pipes) ->
-        join_unclosed_continuation(line, acc, expected_pipes, strip_indent)
+      unclosed_continuation?(acc, line, syntax, mode, expected_cols) ->
+        join_unclosed_continuation(
+          line,
+          acc,
+          expected_pipes,
+          strip_indent,
+          mode,
+          expected_cols
+        )
 
-      table_row?(trimmed) ->
-        pipes = count_pipes(trimmed)
-        processed_line = convert_inline_double_backslashes(line)
-        {[processed_line | acc], {:in_table, max(expected_pipes, pipes)}}
+      table_line?(line) ->
+        cells = parse_row_cells(line, mode)
+        formatted = format_row_cells(cells)
+        pipes = count_pipes(formatted)
+        {[formatted | acc], {:in_table, max(expected_pipes, pipes), mode, length(cells)}}
 
       true ->
         {[line | acc], :out_of_table}
     end
   end
 
-  defp empty_key_continuation?(acc, line, true, key_column) when acc != [] do
-    empty_key_row?(line, hd(acc), key_column)
-  end
+  defp detect_border_mode(line) do
+    trimmed = String.trim(line)
 
-  defp empty_key_continuation?(_acc, _line, _guess, _key_col), do: false
-
-  defp backslash_continuation?(acc, syntax) when acc != [] and syntax in [:all, :backslash] do
-    has_trailing_backslash?(hd(acc))
-  end
-
-  defp backslash_continuation?(_acc, _syntax), do: false
-
-  defp unclosed_continuation?(acc, line, syntax, expected_pipes)
-       when acc != [] and syntax in [:all, :unclosed] do
-    unclosed_row?(hd(acc), line, expected_pipes)
-  end
-
-  defp unclosed_continuation?(_acc, _line, _syntax, _expected), do: false
-
-  defp join_empty_key_row(line, acc, expected_pipes) do
-    [prev | rest] = acc
-    merged = merge_cell_by_cell(prev, line)
-    new_pipes = count_pipes(merged)
-    {[merged | rest], {:in_table, max(expected_pipes, new_pipes)}}
-  end
-
-  defp join_backslash_continuation(line, acc, expected_pipes, strip_indent) do
-    [prev | rest] = acc
-    cleaned_prev = String.replace(prev, ~r/\\\s*$/, "")
-    next_part = if strip_indent, do: String.trim_leading(line), else: line
-    joined = cleaned_prev <> "<br>" <> convert_inline_double_backslashes(next_part)
-    new_pipes = count_pipes(joined)
-    {[joined | rest], {:in_table, max(expected_pipes, new_pipes)}}
-  end
-
-  defp join_unclosed_continuation(line, acc, expected_pipes, strip_indent) do
-    [prev | rest] = acc
-    next_part = if strip_indent, do: String.trim_leading(line), else: line
-    joined = prev <> "<br>" <> convert_inline_double_backslashes(next_part)
-    new_pipes = count_pipes(joined)
-    {[joined | rest], {:in_table, max(expected_pipes, new_pipes)}}
-  end
-
-  defp empty_key_row?(line, prev_line, key_col_idx) do
-    trimmed_curr = String.trim(line)
-    trimmed_prev = String.trim(prev_line)
-
-    if table_row?(trimmed_curr) and not delimiter_row?(trimmed_curr) and
-         not delimiter_row?(trimmed_prev) do
-      cells = parse_row_cells(trimmed_curr)
-      key_val = Enum.at(cells, key_col_idx, "")
-      key_val == "" and cells != []
+    if String.starts_with?(trimmed, "|") and String.ends_with?(trimmed, "|") do
+      :bordered
     else
-      false
+      :borderless
     end
   end
 
-  defp merge_cell_by_cell(prev_line, curr_line) do
-    prev_cells = parse_row_cells(prev_line)
-    curr_cells = parse_row_cells(curr_line)
-    max_len = max(length(prev_cells), length(curr_cells))
-
-    merged_cells =
-      0..(max_len - 1)
-      |> Enum.map(fn i ->
-        p = Enum.at(prev_cells, i, "")
-        c = Enum.at(curr_cells, i, "")
-        c_converted = convert_inline_double_backslashes(c)
-
-        cond do
-          p != "" and c != "" -> p <> "<br>" <> c_converted
-          p != "" -> p
-          c != "" -> c_converted
-          true -> ""
-        end
-      end)
-
-    format_row_cells(merged_cells)
-  end
-
-  defp parse_row_cells(line) do
+  defp parse_row_cells(line, :bordered) do
     line
     |> String.trim()
     |> String.trim_leading("|")
@@ -188,19 +135,183 @@ defmodule MdexMultilineCells.Preprocessor do
     |> Enum.map(&String.trim/1)
   end
 
+  defp parse_row_cells(line, :borderless) do
+    line
+    |> String.split(~r/(?<!\\)\|/)
+    |> Enum.map(&String.trim/1)
+  end
+
   defp format_row_cells(cells) do
-    "| " <> Enum.join(cells, " | ") <> " |"
+    converted_cells = Enum.map(cells, &convert_inline_double_backslashes/1)
+    "| " <> Enum.join(converted_cells, " | ") <> " |"
+  end
+
+  defp empty_key_continuation?(acc, line, mode, true, key_column) when acc != [] do
+    empty_key_row?(line, hd(acc), mode, key_column)
+  end
+
+  defp empty_key_continuation?(_acc, _line, _mode, _guess, _key_col), do: false
+
+  defp backslash_continuation?(acc, syntax) when acc != [] and syntax in [:all, :backslash] do
+    prev = hd(acc)
+    not delimiter_line?(prev) and has_trailing_backslash?(prev)
+  end
+
+  defp backslash_continuation?(_acc, _syntax), do: false
+
+  defp unclosed_continuation?(acc, line, syntax, mode, expected_cols)
+       when acc != [] and syntax in [:all, :unclosed] do
+    prev = hd(acc)
+
+    not delimiter_line?(prev) and not delimiter_line?(line) and
+      unclosed_row?(line, mode, expected_cols)
+  end
+
+  defp unclosed_continuation?(_acc, _line, _syntax, _mode, _expected), do: false
+
+  defp join_empty_key_row(line, acc, expected_pipes, mode) do
+    [prev | rest] = acc
+    merged = merge_cell_by_cell(prev, line, mode)
+    new_pipes = count_pipes(merged)
+    {[merged | rest], {:in_table, max(expected_pipes, new_pipes), mode, count_cells(merged)}}
+  end
+
+  defp join_backslash_continuation(
+         line,
+         acc,
+         expected_pipes,
+         strip_indent,
+         mode,
+         expected_cols
+       ) do
+    [prev | rest] = acc
+    next_part = if strip_indent, do: String.trim_leading(line), else: line
+
+    joined =
+      merge_smart_continuation(prev, next_part, expected_cols, mode)
+
+    new_pipes = count_pipes(joined)
+    {[joined | rest], {:in_table, max(expected_pipes, new_pipes), mode, expected_cols}}
+  end
+
+  defp join_unclosed_continuation(
+         line,
+         acc,
+         expected_pipes,
+         strip_indent,
+         mode,
+         expected_cols
+       ) do
+    [prev | rest] = acc
+    next_part = if strip_indent, do: String.trim_leading(line), else: line
+
+    joined =
+      merge_smart_continuation(prev, next_part, expected_cols, mode)
+
+    new_pipes = count_pipes(joined)
+    {[joined | rest], {:in_table, max(expected_pipes, new_pipes), mode, expected_cols}}
+  end
+
+  defp merge_smart_continuation(prev_line, next_line, expected_cols, mode) do
+    cells = parse_row_cells(next_line, mode)
+
+    if length(cells) == expected_cols do
+      merge_cell_by_cell(prev_line, cells, mode)
+    else
+      append_text_to_last_cell(prev_line, next_line)
+    end
+  end
+
+  defp append_text_to_last_cell(prev_line, next_line) do
+    cleaned_next = String.trim_trailing(String.replace(next_line, ~r/\|\s*$/, ""))
+    c_converted = convert_inline_double_backslashes(cleaned_next)
+    prev_cells = parse_row_cells(prev_line, :bordered)
+
+    do_append_last_cell(prev_cells, c_converted)
+  end
+
+  defp do_append_last_cell([], c_converted), do: c_converted
+
+  defp do_append_last_cell(prev_cells, c_converted) do
+    last_idx = length(prev_cells) - 1
+
+    updated_cells =
+      List.update_at(prev_cells, last_idx, fn old ->
+        clean_old = String.replace(String.trim(old), ~r/\\$/, "")
+
+        cond do
+          clean_old != "" and String.trim(c_converted) != "" ->
+            clean_old <> "<br>" <> c_converted
+
+          clean_old != "" ->
+            clean_old
+
+          true ->
+            c_converted
+        end
+      end)
+
+    format_row_cells(updated_cells)
+  end
+
+  defp count_cells(line) do
+    line |> parse_row_cells(:bordered) |> length()
+  end
+
+  defp empty_key_row?(line, prev_line, mode, key_col_idx) do
+    if table_line?(line) and not delimiter_line?(line) and not delimiter_line?(prev_line) do
+      cells = parse_row_cells(line, mode)
+      key_val = Enum.at(cells, key_col_idx, "")
+      key_val == "" and cells != []
+    else
+      false
+    end
+  end
+
+  defp merge_cell_by_cell(prev_line, curr_line, mode) when is_binary(curr_line) do
+    curr_cells = parse_row_cells(curr_line, mode)
+    merge_cell_by_cell(prev_line, curr_cells, mode)
+  end
+
+  defp merge_cell_by_cell(prev_line, curr_cells, _mode) when is_list(curr_cells) do
+    prev_cells = parse_row_cells(prev_line, :bordered)
+    max_len = max(length(prev_cells), length(curr_cells))
+
+    merged_cells =
+      0..(max_len - 1)
+      |> Enum.map(fn i ->
+        p = Enum.at(prev_cells, i, "")
+        c = Enum.at(curr_cells, i, "")
+        clean_p = String.replace(String.trim(p), ~r/\\$/, "")
+        c_converted = convert_inline_double_backslashes(String.trim(c))
+
+        cond do
+          clean_p != "" and c_converted != "" ->
+            clean_p <> "<br>" <> c_converted
+
+          clean_p != "" ->
+            clean_p
+
+          c_converted != "" ->
+            c_converted
+
+          true ->
+            ""
+        end
+      end)
+
+    format_row_cells(merged_cells)
   end
 
   defp convert_inline_double_backslashes(line) do
-    if delimiter_row?(line) do
+    if delimiter_line?(line) do
       line
     else
       String.replace(line, ~r/(?<!\\)\\\\(?!\|)/, "<br>")
     end
   end
 
-  defp delimiter_row?(line) do
+  defp delimiter_line?(line) do
     trimmed = String.trim(line)
     String.match?(trimmed, ~r/^\|?[\s:\-]+\|[\s:\-|]*$/)
   end
@@ -213,9 +324,9 @@ defmodule MdexMultilineCells.Preprocessor do
     end
   end
 
-  defp table_row?(line) do
-    String.starts_with?(line, "|") or
-      (String.contains?(line, "|") and not String.starts_with?(line, "#"))
+  defp table_line?(line) do
+    trimmed = String.trim(line)
+    String.contains?(line, "|") and not String.starts_with?(trimmed, "```")
   end
 
   defp count_pipes(line) do
@@ -226,19 +337,11 @@ defmodule MdexMultilineCells.Preprocessor do
   end
 
   defp has_trailing_backslash?(line) do
-    String.match?(line, ~r/\\\s*$/)
+    String.match?(line, ~r/\\\s*\|?\s*$/)
   end
 
-  defp unclosed_row?(prev_line, current_line, expected_pipes) do
-    prev_pipes = count_pipes(prev_line)
-    trimmed_current = String.trim(current_line)
-    trimmed_prev = String.trim(prev_line)
-
-    if delimiter_row?(trimmed_prev) do
-      false
-    else
-      (prev_pipes > 0 and prev_pipes < expected_pipes) or
-        (!String.starts_with?(trimmed_current, "|") and String.starts_with?(trimmed_prev, "|"))
-    end
+  defp unclosed_row?(line, mode, expected_cols) do
+    cells = parse_row_cells(line, mode)
+    cells != [] and length(cells) < expected_cols
   end
 end

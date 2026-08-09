@@ -45,7 +45,7 @@ Add `mdex_multiline_cells` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:mdex_multiline_cells, "~> 0.1.0"},
+    {:mdex_multiline_cells, "~> 0.1"},
     {:mdex, "~> 0.13"}
   ]
 end

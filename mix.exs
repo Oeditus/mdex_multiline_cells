@@ -80,7 +80,8 @@ defmodule MdexMultilineCells.MixProject do
   defp package do
     [
       name: @app,
-      files: ~w(lib priv/images/logo-full.png .formatter.exs mix.exs README.md LICENSE),
+      files:
+        ~w(lib priv/images/logo-128.png priv/images/logo-48.png .formatter.exs mix.exs README.md LICENSE),
       licenses: ["MIT"],
       maintainers: ["Aleksei Matiushkin"],
       links: %{
@@ -93,7 +94,7 @@ defmodule MdexMultilineCells.MixProject do
   defp docs do
     [
       main: "readme",
-      logo: "priv/images/logo-full.png",
+      logo: "priv/images/logo-48.png",
       assets: %{"priv/images" => "assets"},
       extras: ["README.md", "LICENSE"],
       source_url: @source_url,

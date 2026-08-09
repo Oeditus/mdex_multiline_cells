@@ -1,5 +1,7 @@
 defmodule MdexMultilineCells.AST do
-  @moduledoc """
+  @moduledoc false
+
+  _ = """
   AST node transformation functions for MDEx multiline table cells.
   """
 

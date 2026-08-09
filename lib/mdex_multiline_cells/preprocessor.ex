@@ -1,5 +1,7 @@
 defmodule MdexMultilineCells.Preprocessor do
-  @moduledoc """
+  @moduledoc false
+
+  _ = """
   Preprocesses Markdown source text to support multi-line table rows.
 
   Normalizes multi-line table cell syntax into standard single-line Markdown table rows

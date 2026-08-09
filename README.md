@@ -2,7 +2,7 @@
 
 # MDEx Multiline Cells
 
-An <a href="https://hexdocs.pm/mdex">MDEx</a> plugin enabling multi-line cells in Markdown tables with full inline/block Markdown rendering and automatic key-column continuation guessing.
+An [MDEx](https://hexdocs.pm/mdex) plugin enabling multi-line cells in Markdown tables with full inline/block Markdown rendering and automatic key-column continuation guessing.
 
 <p align="center">
   <a href="https://hex.pm/packages/mdex_multiline_cells"><img src="https://img.shields.io/hexpm/v/mdex_multiline_cells.svg" alt="Hex Version" /></a>
